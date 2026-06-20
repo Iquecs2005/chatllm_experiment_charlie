@@ -1,10 +1,10 @@
 const API_BASE = window.location.origin;
 
-async function sendMessageStream({ message, history, onDelta, signal }) {
+async function sendMessageStream({ message, history, session_id, onDelta, signal }) {
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, session_id }),
     signal,
   });
 
@@ -55,4 +55,43 @@ async function sendMessageStream({ message, history, onDelta, signal }) {
       }
     }
   }
+}
+
+async function apiFetch(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body?.detail || `Erro ${response.status}`);
+  }
+  return response;
+}
+
+async function listSessions() {
+  const response = await apiFetch("/api/sessions");
+  return response.json();
+}
+
+async function createSession() {
+  const response = await apiFetch("/api/sessions", { method: "POST" });
+  return response.json();
+}
+
+async function deleteSession(sessionId) {
+  await apiFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+}
+
+async function getSessionMessages(sessionId) {
+  const response = await apiFetch(`/api/sessions/${sessionId}/messages`);
+  return response.json();
+}
+
+async function generateSessionTitle(sessionId, message, reply) {
+  const response = await apiFetch("/api/sessions/generate-title", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, message, reply }),
+  });
+  return response.json();
 }

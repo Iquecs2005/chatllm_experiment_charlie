@@ -5,25 +5,24 @@
 **Hard rule**: AI agents must not edit this file and must not draft paste-ready content for it.
 
 ## R — Repeat (The Problem)
-_State the problem in your own words. Confirm that you share the same mental model of the goal._
+Implementar a função de sessões no aplicativo. Cada sessão deve ter seu proprio historico e um titulo baseado na primeira mensagem. O usuario deve ser capaz de trocar entre sessoes, criar e deletar sessoes e seu historico recarregado. 
 
 ## E — Examples
-_Provide concrete inputs and expected outputs that demonstrate the correctness. Base them on observable behavior._
 
-- **Happy Path Input**: ...
-  **Output**: ...
+- **Happy Path Input**: Criar uma sessão, defini-la como atual e mandar um prompt 
+  **Output**: O agente responde de acordo
 
-- **Edge Case Input**: ...
-  **Output**: ...
+- **Edge Case Input**: Criar duas sessões, mandar uma senha aleatoria para uma das sessoes, trocar de sessao e pedir a senha. 
+  **Output**: O agente não sabe a resposta.
 
 ## A — Approach
-_Describe your high-level strategy conceptually. How did you design the solution?_
+Separei a implementação do front e do back, desenvolvendo cara fronte em paralelo, para que depois eles sejam interligados.
 
 ## C — Code
-_Identify the most critical code changes, format as actual files, functions, or methods. Justify the intent of your design choices rather than just acknowledging the syntax changes._
+Criação de um modelo para sessões no banco de dados em models.py, ligação entre uma mensagem e uma sessão pelo id da sessão contido na mensagem no banco, tambem em models.py. Implementação das funções desejadas em sessions.py
 
 ## T — Tests
-_Explain how the solution was validated, pointing to the actual test files, functions, or methods. Document any manual or automated tests._
+Cada função foi testada em test_sessions.py e quando era encontrado um bug esse arquivo era atualizado com um novo test case. Todos os schemas e modelos gerados tambem foram testados nos arquivos test_schemas.py e test_models.py
 
 ## O — Optimize
-_Address Big(O) complexity, note that sometimes it doesn't apply, trade-offs, constraints, and opportunities for future improvement._
+Para a função de resgatar o historico a complexidade é O(n), ou seja para trocar de sessao essa complexidade tambem é aplicada. Além de que para carregar o aplicativo, precisamos listar as sessoes que tambem é O(n). Mas de resto tudo é O(1)
