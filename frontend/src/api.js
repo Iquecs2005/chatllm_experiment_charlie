@@ -1,9 +1,30 @@
 const API_BASE = window.location.origin;
 
+function getToken() {
+  return localStorage.getItem("token");
+}
+
+function setToken(token) {
+  if (token) {
+    localStorage.setItem("token", token);
+  } else {
+    localStorage.removeItem("token");
+  }
+}
+
+function authHeaders() {
+  const token = getToken();
+  const headers = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 async function sendMessageStream({ message, history, session_id, onDelta, signal }) {
   const response = await fetch(`${API_BASE}/api/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders(),
     body: JSON.stringify({ message, history, session_id }),
     signal,
   });
@@ -58,9 +79,10 @@ async function sendMessageStream({ message, history, session_id, onDelta, signal
 }
 
 async function apiFetch(path, options = {}) {
+  const headers = { ...authHeaders(), ...options.headers };
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -94,4 +116,47 @@ async function generateSessionTitle(sessionId, message, reply) {
     body: JSON.stringify({ session_id: sessionId, message, reply }),
   });
   return response.json();
+}
+
+// --- Auth ---
+
+async function registerUser(email, password) {
+  const response = await apiFetch("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json();
+  setToken(data.access_token);
+  return data;
+}
+
+async function loginUser(email, password) {
+  const response = await apiFetch("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await response.json();
+  setToken(data.access_token);
+  return data;
+}
+
+async function logoutUser() {
+  try {
+    await apiFetch("/api/auth/logout", { method: "POST" });
+  } catch {
+    // Ignore errors
+  }
+  setToken(null);
+}
+
+async function getMe() {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const response = await apiFetch("/api/auth/me");
+    return response.json();
+  } catch {
+    setToken(null);
+    return null;
+  }
 }

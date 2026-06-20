@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from backend.models import ChatMessage, Session
+from backend.models import ChatMessage, Session, User
 
 
 class TestChatMessage:
@@ -148,6 +148,21 @@ class TestSession:
         assert result is not None
         assert result.title == "Unica"
 
+    def test_session_with_user_id(self, db_session):
+        """Deve criar sessao associada a um user_id."""
+        from backend.models import User
+        user = User(email="user@test.com", password_hash="hash")
+        db_session.add(user)
+        db_session.commit()
+
+        session_id = str(uuid.uuid4())
+        session = Session(id=session_id, title="Minha Sessao", user_id=user.id)
+        db_session.add(session)
+        db_session.commit()
+        db_session.refresh(session)
+
+        assert session.user_id == user.id
+
     def test_content_persists_long_text(self, db_session):
         """Deve persistir conteudos longos corretamente."""
         long_text = "Lorem ipsum " * 200
@@ -157,3 +172,32 @@ class TestSession:
         db_session.refresh(msg)
 
         assert msg.content == long_text
+
+
+class TestUser:
+    def test_create_user(self, db_session):
+        """Deve criar um usuario com email e password_hash."""
+        from backend.models import User
+        user = User(email="user@test.com", password_hash="hashed_password")
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+
+        assert user.id is not None
+        assert user.email == "user@test.com"
+        assert user.password_hash == "hashed_password"
+        assert user.created_at is not None
+
+    def test_email_unique(self, db_session):
+        """Email deve ser unico no banco."""
+        from backend.models import User
+        import pytest
+        user1 = User(email="same@test.com", password_hash="hash1")
+        user2 = User(email="same@test.com", password_hash="hash2")
+        db_session.add(user1)
+        db_session.commit()
+
+        db_session.add(user2)
+        with pytest.raises(Exception):
+            db_session.commit()
+        db_session.rollback()

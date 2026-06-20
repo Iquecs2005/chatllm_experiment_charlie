@@ -4,7 +4,83 @@ function createMessageId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function AuthScreen({ onAuthSuccess }) {
+  const [mode, setMode] = useState("login"); // "login" | "register"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      if (mode === "login") {
+        await loginUser(email, password);
+      } else {
+        await registerUser(email, password);
+      }
+      onAuthSuccess();
+    } catch (err) {
+      setError(err.message || "Erro ao autenticar");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="app-shell auth-shell">
+      <header className="app-header">
+        <div className="brand">ChatLLM Lab</div>
+      </header>
+      <div className="auth-container">
+        <div className="auth-card">
+          <h2 className="auth-title">{mode === "login" ? "Entrar" : "Criar Conta"}</h2>
+          <form onSubmit={handleSubmit} className="auth-form">
+            <label className="auth-label">
+              Email
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="seu@email.com"
+                required
+                autoFocus
+              />
+            </label>
+            <label className="auth-label">
+              Senha
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                minLength={6}
+                required
+              />
+            </label>
+            {error && <div className="auth-error">{error}</div>}
+            <button type="submit" disabled={loading} className="auth-submit">
+              {loading ? "Aguarde..." : mode === "login" ? "Entrar" : "Criar Conta"}
+            </button>
+          </form>
+          <div className="auth-toggle">
+            {mode === "login" ? (
+              <span>Nao tem conta? <a href="#" onClick={(e) => { e.preventDefault(); setMode("register"); setError(""); }}>Cadastre-se</a></span>
+            ) : (
+              <span>Ja tem conta? <a href="#" onClick={(e) => { e.preventDefault(); setMode("login"); setError(""); }}>Faca login</a></span>
+            )}
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 function App() {
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -14,16 +90,26 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesRef = useRef(null);
   const abortControllerRef = useRef(null);
-  const sessionsLoadedRef = useRef(false);
   const titledSessionsRef = useRef(new Set());
 
-  // Load sessions on mount
+  // Check if user is already authenticated on mount
   useEffect(() => {
+    (async () => {
+      const me = await getMe();
+      if (me) {
+        setUser(me);
+      }
+      setAuthChecked(true);
+    })();
+  }, []);
+
+  // Load sessions once authenticated
+  useEffect(() => {
+    if (!user) return;
     (async () => {
       try {
         const data = await listSessions();
         setSessions(data.sessions);
-        // Mark sessions that already have a non-default title as titled
         for (const s of data.sessions) {
           if (s.title !== "Novo Chat") {
             titledSessionsRef.current.add(s.id);
@@ -36,7 +122,7 @@ function App() {
         console.error("Failed to load sessions:", err);
       }
     })();
-  }, []);
+  }, [user]);
 
   // Load messages when session changes
   useEffect(() => {
@@ -69,6 +155,20 @@ function App() {
     return () => {
       abortControllerRef.current?.abort();
     };
+  }, []);
+
+  const handleAuthSuccess = useCallback(async () => {
+    const me = await getMe();
+    setUser(me);
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await logoutUser();
+    setUser(null);
+    setSessions([]);
+    setCurrentSessionId(null);
+    setMessages([]);
+    titledSessionsRef.current.clear();
   }, []);
 
   const handleNewSession = useCallback(async () => {
@@ -112,7 +212,6 @@ function App() {
     const cleaned = text.trim();
     if (!cleaned || busy) return;
 
-    // Auto-create session if none selected
     let sessionId = currentSessionId;
     if (!sessionId) {
       try {
@@ -140,7 +239,6 @@ function App() {
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
-    // Track reply content live — avoids stale closure on messages state
     let replyContent = "";
 
     try {
@@ -169,14 +267,12 @@ function App() {
         )
       );
 
-      // Generate title only once per session — track via ref to avoid stale closure
       if (replyContent.trim() && !titledSessionsRef.current.has(sessionId)) {
         titledSessionsRef.current.add(sessionId);
         try {
           const result = await generateSessionTitle(sessionId, cleaned, replyContent);
           setSessions((prev) => prev.map((s) => s.id === sessionId ? { ...s, title: result.title } : s));
         } catch (e) {
-          // Non-critical — remove from set so it can retry on next message
           titledSessionsRef.current.delete(sessionId);
         }
       }
@@ -205,6 +301,20 @@ function App() {
       setBusy(false);
     }
   };
+
+  // Show auth screen while checking and if not authenticated
+  if (!authChecked) {
+    return (
+      <main className="app-shell">
+        <header className="app-header"><div className="brand">ChatLLM Lab</div></header>
+        <div className="auth-container"><div className="auth-card"><p style={{textAlign: "center", color: "var(--muted)"}}>Carregando...</p></div></div>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return <AuthScreen onAuthSuccess={handleAuthSuccess} />;
+  }
 
   return (
     <div className="app-layout">
@@ -242,6 +352,12 @@ function App() {
               </button>
             </div>
           ))}
+        </div>
+        <div className="sidebar-footer">
+          <div className="sidebar-user">
+            <span className="sidebar-user-email" title={user.email}>{user.email}</span>
+            <button className="sidebar-logout" onClick={handleLogout} title="Sair">Sair</button>
+          </div>
         </div>
       </aside>
 

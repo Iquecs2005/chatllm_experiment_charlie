@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models import ChatMessage, Session
+from backend.dependencies import get_current_user
+from backend.models import ChatMessage, Session, User
 from backend.schemas.chat import (
     SessionCreateOut,
     SessionGenerateTitleRequest,
@@ -29,13 +30,15 @@ def _generate_title_from_context(message: str, reply: str) -> str:
 
 
 @router.get("", response_model=SessionListOut)
-def list_sessions(db: Session = Depends(get_db)):
-    """List all sessions ordered by most recently updated."""
-    sessions = (
-        db.query(Session)
-        .order_by(Session.updated_at.desc())
-        .all()
-    )
+def list_sessions(
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
+    """List sessions. Filters by user if authenticated, otherwise returns all."""
+    query = db.query(Session)
+    if current_user is not None:
+        query = query.filter(Session.user_id == current_user.id)
+    sessions = query.order_by(Session.updated_at.desc()).all()
     return SessionListOut(
         sessions=[
             SessionOut(
@@ -50,10 +53,17 @@ def list_sessions(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=SessionCreateOut, status_code=201)
-def create_session(db: Session = Depends(get_db)):
+def create_session(
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
     """Create a new empty session."""
     session_id = str(uuid.uuid4())
-    session = Session(id=session_id, title="Novo Chat")
+    session = Session(
+        id=session_id,
+        title="Novo Chat",
+        user_id=current_user.id if current_user else None,
+    )
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -61,11 +71,19 @@ def create_session(db: Session = Depends(get_db)):
 
 
 @router.delete("/{session_id}", status_code=204)
-def delete_session(session_id: str, db: Session = Depends(get_db)):
+def delete_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
     """Delete a session and all its messages."""
     session = db.query(Session).filter(Session.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Only allow deleting if user owns the session (or no auth)
+    if current_user is not None and session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this session")
 
     # Delete all messages belonging to this session
     db.query(ChatMessage).filter(ChatMessage.session_key == session_id).delete()
@@ -74,11 +92,19 @@ def delete_session(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{session_id}/messages")
-def get_session_messages(session_id: str, db: Session = Depends(get_db)):
+def get_session_messages(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
     """Get all messages for a given session."""
     session = db.query(Session).filter(Session.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Only allow if user owns the session (or no auth)
+    if current_user is not None and session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
     messages = (
         db.query(ChatMessage)
@@ -99,7 +125,11 @@ def get_session_messages(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/generate-title")
-def generate_title(payload: SessionGenerateTitleRequest, db: Session = Depends(get_db)):
+def generate_title(
+    payload: SessionGenerateTitleRequest,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
     """Generate and update the title for a session based on first message context.
     
     Only sets the title if the session still has the default title ('Novo Chat').
@@ -109,8 +139,11 @@ def generate_title(payload: SessionGenerateTitleRequest, db: Session = Depends(g
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Only allow if user owns the session (or no auth)
+    if current_user is not None and session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
     if session.title != "Novo Chat":
-        # Title already customized — return current title unchanged
         return {"id": session.id, "title": session.title}
 
     new_title = _generate_title_from_context(payload.message, payload.reply)
